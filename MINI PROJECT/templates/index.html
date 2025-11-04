@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Campus Navigation</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        #map { height: 80vh; }
+    </style>
+</head>
+<body>
+
+    <h2>Campus Navigation with Live Tracking</h2>
+    <select id="start">
+        {% for loc in locations %}
+            <option value="{{ loc }}">{{ loc }}</option>
+        {% endfor %}
+    </select>
+    <select id="end">
+        {% for loc in locations %}
+            <option value="{{ loc }}">{{ loc }}</option>
+        {% endfor %}
+    </select>
+    <button onclick="findPath()">Find Path</button>
+    <button onclick="trackLocation()">Start Tracking</button>
+
+    <div id="map"></div>
+
+    <script>
+        var map = L.map('map').setView([30.7707, 76.5767], 16);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+        }).addTo(map);
+
+        var pathLayer;
+        var liveMarker = L.marker([0, 0]).addTo(map).bindPopup("Your Location");
+
+        var socket = io.connect(location.protocol + '//' + document.domain + ':' + location.port);
+
+        function findPath() {
+            let start = document.getElementById("start").value;
+            let end = document.getElementById("end").value;
+
+            fetch("/get_path", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ start: start, end: end })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (pathLayer) map.removeLayer(pathLayer);
+                let latlngs = data.coords;
+                pathLayer = L.polyline(latlngs, { color: "blue" }).addTo(map);
+                map.fitBounds(pathLayer.getBounds());
+            });
+        }
+
+        function trackLocation() {
+            if (!navigator.geolocation) {
+                alert("Geolocation is not supported by your browser.");
+                return;
+            }
+
+            navigator.geolocation.watchPosition(position => {
+                let lat = position.coords.latitude;
+                let lon = position.coords.longitude;
+                socket.emit("update_location", { latitude: lat, longitude: lon });
+
+                liveMarker.setLatLng([lat, lon]);
+                map.setView([lat, lon], 16);
+            }, error => {
+                alert("Error getting location: " + error.message);
+            }, { enableHighAccuracy: true });
+        }
+
+        socket.on("new_location", data => {
+            liveMarker.setLatLng([data.latitude, data.longitude]);
+        });
+
+    </script>
+</body>
+</html>
